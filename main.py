@@ -362,11 +362,7 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     if callback:
-        try:
-            await callback.message.edit_text(result, parse_mode="HTML", reply_markup=reply_markup)
-        except Exception as e:
-            if "message is not modified" not in str(e):
-                logging.error(f"Ошибка при редактировании: {e}")
+        await callback.message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
         await callback.answer()
     else:
         await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
