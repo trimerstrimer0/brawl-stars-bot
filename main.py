@@ -9,7 +9,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bs4 import BeautifulSoup
 
-TOKEN = "8609986044:AAHyMYrVaTj2xWh7aWdu6Uq7i8mrHT-BjH0"
+TOKEN = os.environ.get("BOT_TOKEN")
 
 logging.basicConfig(level=logging.INFO)
 
