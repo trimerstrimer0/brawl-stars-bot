@@ -356,18 +356,23 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     
     keyboard.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"brawlers_list_{safe_tag}_{player_tag}")])
     
-    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
+    reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     if callback:
         callback_id = f"{callback.id}"
         if callback_id in processed_callbacks:
+            await callback.answer()
             return
         processed_callbacks.add(callback_id)
         
         if len(processed_callbacks) > 1000:
             processed_callbacks.clear()
         
-        await callback.message.edit_text(result, parse_mode="HTML", reply_markup=reply_markup)
+        try:
+            await callback.message.edit_text(result, parse_mode="HTML", reply_markup=reply_markup)
+            await callback.answer()
+        except Exception as e:
+            logging.error(f"Ошибка при редактировании: {e}")
     else:
         await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
 
@@ -383,10 +388,11 @@ async def callback_brawlers_page(callback: CallbackQuery):
         processed_callbacks.clear()
     
     data = callback.data.split("_")
+    logging.info(f"Callback data: {data}")
 
-    if data[1] == "list" and len(data) >= 4:
+    if len(data) >= 3 and data[1] == "list":
         tag_clean = data[2]
-        player_tag = "_".join(data[3:])
+        player_tag = "_".join(data[3:]) if len(data) > 3 else tag_clean
         
         user_brawlers[callback.from_user.id] = {
             "brawlers": [],
@@ -395,10 +401,9 @@ async def callback_brawlers_page(callback: CallbackQuery):
             "player_tag": player_tag
         }
         await get_brawlers_info(callback.message, tag_clean, player_tag, 0, callback=callback)
-        await callback.answer()
         return
     
-    if data[1] == "page" and len(data) >= 4:
+    if len(data) >= 4 and data[1] == "page":
         tag_clean = data[2]
         try:
             page = int(data[3])
@@ -412,10 +417,9 @@ async def callback_brawlers_page(callback: CallbackQuery):
                 player_tag = user_brawlers[callback.from_user.id]["player_tag"]
         
         await get_brawlers_info(callback.message, tag_clean, player_tag, page, callback=callback)
-        await callback.answer()
         return
     
-    if len(data) >= 3 and data[1] != "list" and data[1] != "page":
+    if len(data) >= 3:
         tag_clean = data[1]
         try:
             page = int(data[2])
@@ -429,7 +433,6 @@ async def callback_brawlers_page(callback: CallbackQuery):
                 player_tag = user_brawlers[callback.from_user.id]["player_tag"]
         
         await get_brawlers_info(callback.message, tag_clean, player_tag, page, callback=callback)
-        await callback.answer()
         return
     
     await callback.answer()
