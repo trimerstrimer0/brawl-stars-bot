@@ -16,17 +16,17 @@ bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 user_brawlers = {}
-processed_messages = set()
+processed_updates = set()
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
-    message_id = f"{message.chat.id}_{message.message_id}"
-    if message_id in processed_messages:
+    # Проверка на дубликат обновления
+    update_id = f"msg_{message.chat.id}_{message.message_id}"
+    if update_id in processed_updates:
         return
-    processed_messages.add(message_id)
-    
-    if len(processed_messages) > 1000:
-        processed_messages.clear()
+    processed_updates.add(update_id)
+    if len(processed_updates) > 1000:
+        processed_updates.clear()
     
     await message.answer(
         f"👋 Привет, <b>{message.from_user.first_name}</b>!\n\n"
@@ -44,14 +44,14 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("bs"))
 async def cmd_bs(message: Message):
-    message_id = f"{message.chat.id}_{message.message_id}"
-    if message_id in processed_messages:
+    # Проверка на дубликат обновления
+    update_id = f"msg_{message.chat.id}_{message.message_id}"
+    if update_id in processed_updates:
         return
-    processed_messages.add(message_id)
-    
-    if len(processed_messages) > 1000:
-        processed_messages.clear()
-    
+    processed_updates.add(update_id)
+    if len(processed_updates) > 1000:
+        processed_updates.clear()
+
     args = message.text.split(maxsplit=2)
 
     if len(args) < 3:
@@ -92,6 +92,7 @@ async def cmd_bs(message: Message):
         )
 
 async def get_player_info(message: Message, tag_clean: str, player_tag: str):
+    logging.info(f"Запрос игрока: {tag_clean}")
     display_tag = player_tag if player_tag.startswith('#') else f"#{player_tag}"
     await message.answer(
         f"🔍 Поиск игрока <code>{display_tag}</code>...",
@@ -99,10 +100,11 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
     )
 
     url = f"https://brawlify.com/player/{tag_clean}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url) as response:
+            async with session.get(url, headers=headers, timeout=10) as response:
                 if response.status != 200:
                     await message.answer(
                         f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>",
@@ -209,10 +211,11 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
     )
 
     url = f"https://brawlify.com/club/{tag_clean}"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url) as response:
+            async with session.get(url, headers=headers, timeout=10) as response:
                 if response.status != 200:
                     await message.answer(
                         f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>",
@@ -255,7 +258,7 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
                 parse_mode="HTML"
             )
 
-async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, page: int, callback: CallbackQuery = None):
+async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, page: int, callback: CallbackQuery = None, is_list: bool = False):
     # Определяем user_id в зависимости от того, вызвана ли функция из callback
     if callback:
         user_id = callback.from_user.id
@@ -271,10 +274,11 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
             )
 
         url = f"https://brawlify.com/player/{tag_clean}/brawlers"
+        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(url) as response:
+                async with session.get(url, headers=headers, timeout=10) as response:
                     if response.status != 200:
                         error_msg = f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>"
                         if callback:
@@ -362,13 +366,26 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     if callback:
-        await callback.message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
+        # Кнопка "Обновить" отправляет новое, навигация редактирует
+        if is_list:
+            await callback.message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
+        else:
+            await callback.message.edit_text(result, parse_mode="HTML", reply_markup=reply_markup)
         await callback.answer()
     else:
         await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
 
 @dp.callback_query(F.data.startswith("brawlers_"))
 async def callback_brawlers_page(callback: CallbackQuery):
+    # Проверка на дубликат обновления
+    update_id = f"cb_{callback.id}"
+    if update_id in processed_updates:
+        await callback.answer()
+        return
+    processed_updates.add(update_id)
+    if len(processed_updates) > 1000:
+        processed_updates.clear()
+
     data = callback.data.split("_")
     logging.info(f"Callback data: {data}")
 
@@ -382,7 +399,7 @@ async def callback_brawlers_page(callback: CallbackQuery):
             "tag_clean": tag_clean,
             "player_tag": player_tag
         }
-        await get_brawlers_info(callback.message, tag_clean, player_tag, 0, callback=callback)
+        await get_brawlers_info(callback.message, tag_clean, player_tag, 0, callback=callback, is_list=True)
         await callback.answer()
         return
 
@@ -403,7 +420,7 @@ async def callback_brawlers_page(callback: CallbackQuery):
         await callback.answer()
         return
 
-    if len(data) >= 3:
+    if len(data) >= 3 and data[1] != "list" and data[1] != "page":
         tag_clean = data[1]
         try:
             page = int(data[2])
