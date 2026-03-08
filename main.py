@@ -17,7 +17,6 @@ dp = Dispatcher()
 
 user_brawlers = {}
 processed_messages = set()
-processed_callbacks = set()
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
@@ -190,7 +189,7 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                         result += f"{i}. <code>{b_name}</code> - <b>{b_trophies}</b>\n"
 
                 safe_tag = tag_clean.replace("#", "")
-                keyboard = [[InlineKeyboardButton(text="🎮 Бойцы", callback_data=f"brawlers_list_{safe_tag}_{player_tag}")]]
+                keyboard = [[InlineKeyboardButton(text="🎮 Бойцы", callback_data=f"brawlers_list_{safe_tag}")]]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
                 await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
@@ -257,7 +256,11 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
             )
 
 async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, page: int, callback: CallbackQuery = None):
-    user_id = message.from_user.id
+    # Определяем user_id в зависимости от того, вызвана ли функция из callback
+    if callback:
+        user_id = callback.from_user.id
+    else:
+        user_id = message.from_user.id
     display_tag = player_tag if player_tag.startswith('#') else f"#{player_tag}"
 
     if user_id not in user_brawlers or user_brawlers[user_id]["tag_clean"] != tag_clean or not user_brawlers[user_id].get("brawlers"):
@@ -353,47 +356,30 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     
     if row:
         keyboard.append(row)
-    
-    keyboard.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"brawlers_list_{safe_tag}_{player_tag}")])
+
+    keyboard.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"brawlers_list_{safe_tag}")])
     
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
     if callback:
-        callback_id = f"{callback.id}"
-        if callback_id in processed_callbacks:
-            await callback.answer()
-            return
-        processed_callbacks.add(callback_id)
-        
-        if len(processed_callbacks) > 1000:
-            processed_callbacks.clear()
-        
         try:
             await callback.message.edit_text(result, parse_mode="HTML", reply_markup=reply_markup)
-            await callback.answer()
         except Exception as e:
-            logging.error(f"Ошибка при редактировании: {e}")
+            if "message is not modified" not in str(e):
+                logging.error(f"Ошибка при редактировании: {e}")
+        await callback.answer()
     else:
         await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
 
 @dp.callback_query(F.data.startswith("brawlers_"))
 async def callback_brawlers_page(callback: CallbackQuery):
-    callback_id = f"{callback.id}"
-    if callback_id in processed_callbacks:
-        await callback.answer()
-        return
-    processed_callbacks.add(callback_id)
-    
-    if len(processed_callbacks) > 1000:
-        processed_callbacks.clear()
-    
     data = callback.data.split("_")
     logging.info(f"Callback data: {data}")
 
     if len(data) >= 3 and data[1] == "list":
         tag_clean = data[2]
-        player_tag = "_".join(data[3:]) if len(data) > 3 else tag_clean
-        
+        player_tag = tag_clean
+
         user_brawlers[callback.from_user.id] = {
             "brawlers": [],
             "page": 0,
@@ -401,8 +387,9 @@ async def callback_brawlers_page(callback: CallbackQuery):
             "player_tag": player_tag
         }
         await get_brawlers_info(callback.message, tag_clean, player_tag, 0, callback=callback)
+        await callback.answer()
         return
-    
+
     if len(data) >= 4 and data[1] == "page":
         tag_clean = data[2]
         try:
@@ -410,15 +397,16 @@ async def callback_brawlers_page(callback: CallbackQuery):
         except ValueError:
             await callback.answer()
             return
-        
+
         player_tag = tag_clean
         if callback.from_user.id in user_brawlers:
             if user_brawlers[callback.from_user.id]["tag_clean"] == tag_clean:
                 player_tag = user_brawlers[callback.from_user.id]["player_tag"]
-        
+
         await get_brawlers_info(callback.message, tag_clean, player_tag, page, callback=callback)
+        await callback.answer()
         return
-    
+
     if len(data) >= 3:
         tag_clean = data[1]
         try:
@@ -426,15 +414,16 @@ async def callback_brawlers_page(callback: CallbackQuery):
         except ValueError:
             await callback.answer()
             return
-        
+
         player_tag = tag_clean
         if callback.from_user.id in user_brawlers:
             if user_brawlers[callback.from_user.id]["tag_clean"] == tag_clean:
                 player_tag = user_brawlers[callback.from_user.id]["player_tag"]
-        
+
         await get_brawlers_info(callback.message, tag_clean, player_tag, page, callback=callback)
+        await callback.answer()
         return
-    
+
     await callback.answer()
 
 async def main():
