@@ -2,6 +2,7 @@ import asyncio
 import logging
 import re
 import os
+import time
 
 import aiohttp
 from aiogram import Bot, Dispatcher, F
@@ -19,8 +20,21 @@ dp = Dispatcher()
 
 user_brawlers = {}
 
+# Словарь для отслеживания обработанных сообщений
+processed_messages = set()
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
+    # Защита от дублирования
+    message_id = f"{message.chat.id}_{message.message_id}"
+    if message_id in processed_messages:
+        return
+    processed_messages.add(message_id)
+    
+    # Очистка старых записей (чтобы словарь не рос бесконечно)
+    if len(processed_messages) > 1000:
+        processed_messages.clear()
+    
     await message.answer(
         f"👋 Привет, <b>{message.from_user.first_name}</b>!\n\n"
         f"🤖 <b>Я бот для проверки статистики Brawl Stars</b>\n\n"
@@ -38,6 +52,16 @@ async def cmd_start(message: Message):
 
 @dp.message(Command("bs"))
 async def cmd_bs(message: Message):
+    # Защита от дублирования
+    message_id = f"{message.chat.id}_{message.message_id}"
+    if message_id in processed_messages:
+        return
+    processed_messages.add(message_id)
+    
+    # Очистка старых записей
+    if len(processed_messages) > 1000:
+        processed_messages.clear()
+    
     args = message.text.split(maxsplit=2)
 
     if len(args) < 3:
@@ -60,7 +84,6 @@ async def cmd_bs(message: Message):
     elif cmd_type == "clan":
         await get_clan_info(message, tag_clean, player_tag)
     elif cmd_type == "brawlers":
-        # Сохраняем данные для кэша перед вызовом
         user_brawlers[message.from_user.id] = {
             "brawlers": [],
             "page": 0,
@@ -80,8 +103,10 @@ async def cmd_bs(message: Message):
 
 
 async def get_player_info(message: Message, tag_clean: str, player_tag: str):
+    # Исправляем отображение тега (убираем лишнюю решетку)
+    display_tag = player_tag if player_tag.startswith('#') else f"#{player_tag}"
     await message.answer(
-        f"🔍 Поиск игрока <code>#{player_tag}</code>...",
+        f"🔍 Поиск игрока <code>{display_tag}</code>...",
         parse_mode="HTML"
     )
 
@@ -100,46 +125,34 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                 html = await response.text()
                 soup = BeautifulSoup(html, "html.parser")
 
-                # Ищем ник - любой h1 с font-bold
                 name_elem = soup.find("h1")
                 name = name_elem.get_text(strip=True) if name_elem else "Неизвестно"
 
-                # Ищем кубки - любой span с text-brawl-gold
                 trophies_elem = soup.find("span", class_="text-brawl-gold")
                 trophies = trophies_elem.get_text(strip=True) if trophies_elem else "Неизвестно"
 
-                # Ищем информацию о клубе
                 club_name = "Не состоит"
                 club_tag = ""
                 
-                # Ищем секцию с клубом - Club
                 club_section = soup.find("span", string=lambda x: x and "Club" in x)
                 if club_section:
-                    # Находим родительский блок
                     club_div = club_section.find_parent("div", class_=lambda x: x and "flex flex-col" in x)
                     if club_div:
-                        # Ищем ссылку на клуб
                         club_link = club_div.find("a", href=lambda x: x and "/club/" in x)
                         if club_link:
-                            # Ищем название клуба
                             club_name_elem = club_link.find("p", class_="font-bold")
                             if club_name_elem:
                                 club_name = club_name_elem.get_text(strip=True)
                             
-                            # Извлекаем тег из href
                             href = club_link.get("href", "")
                             if "/club/" in href:
                                 club_tag = href.split("/club/")[-1].rstrip("/")
 
-                # Ищем топ 3 бойцов на подиуме
                 top_brawlers = []
-
-                # Ищем все карточки с цифрами 1, 2, 3
                 first_place = None
                 second_place = None
                 third_place = None
                 
-                # Ищем все div с rounded-full (кружочки с номерами)
                 rank_circles = soup.find_all("div", class_="rounded-full")
                 
                 for circle in rank_circles:
@@ -147,12 +160,10 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                     if rank_text not in ["1", "2", "3"]:
                         continue
                     
-                    # Ищем родительскую карточку
                     card = circle.find_parent("div", class_=lambda x: x and "flex-col" in x and "items-center" in x)
                     if not card:
                         continue
                     
-                    # Ищем имя и кубки в карточке
                     name_p = card.find("p", string=lambda x: x and 2 <= len(x.strip()) <= 20)
                     trophies_p = card.find("p", class_="text-brawl-gold")
                     
@@ -167,7 +178,6 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                         elif rank_text == "3":
                             third_place = (brawler_name, brawler_trophies)
 
-                # Собираем топ 3 в правильном порядке
                 if first_place:
                     top_brawlers.append(first_place)
                 if second_place:
@@ -179,10 +189,9 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                     f"🎮 <b>Игрок найден!</b>\n\n"
                     f"👤 <b>Ник:</b> <code>{name}</code>\n"
                     f"🏆 <b>Кубки:</b> <code>{trophies}</code>\n"
-                    f"🆔 <b>ID:</b> <code>#{player_tag}</code>"
+                    f"🆔 <b>ID:</b> <code>{display_tag}</code>"
                 )
 
-                # Добавляем информацию о клубе
                 if club_name != "Не состоит":
                     result += f"\n\n🏰 <b>Клан:</b> <code>{club_name}</code>"
                     if club_tag:
@@ -193,7 +202,6 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                     for i, (b_name, b_trophies) in enumerate(top_brawlers, 1):
                         result += f"{i}. <code>{b_name}</code> - <b>{b_trophies}</b>\n"
 
-                # Добавляем кнопку "Бойцы"
                 safe_tag = tag_clean.replace("#", "")
                 keyboard = [[InlineKeyboardButton(text="🎮 Бойцы", callback_data=f"brawlers_list_{safe_tag}_{player_tag}")]]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
@@ -209,8 +217,9 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
 
 
 async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
+    display_tag = clan_tag if clan_tag.startswith('#') else f"#{clan_tag}"
     await message.answer(
-        f"🔍 Поиск клана <code>#{clan_tag}</code>...",
+        f"🔍 Поиск клана <code>{display_tag}</code>...",
         parse_mode="HTML"
     )
 
@@ -251,7 +260,7 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
                     f"🏆 <b>Кубки:</b> <code>{clan_trophies}</code>\n"
                     f"👥 <b>Участники:</b> <code>{members}</code>\n"
                     f"📝 <b>Описание:</b> <i>{description}</i>\n"
-                    f"🆔 <b>ID:</b> <code>#{clan_tag}</code>"
+                    f"🆔 <b>ID:</b> <code>{display_tag}</code>"
                 )
 
                 await message.answer(result, parse_mode="HTML")
@@ -265,13 +274,12 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
 
 
 async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, page: int, callback: CallbackQuery = None):
-    """Получение списка всех бойцов игрока с пагинацией"""
     user_id = message.from_user.id
+    display_tag = player_tag if player_tag.startswith('#') else f"#{player_tag}"
 
-    # Если это новая страница (не из кэша или кэш пуст), загружаем данные
     if user_id not in user_brawlers or user_brawlers[user_id]["tag_clean"] != tag_clean or not user_brawlers[user_id].get("brawlers"):
         await message.answer(
-            f"🔍 Загрузка бойцов игрока <code>#{player_tag}</code>...",
+            f"🔍 Загрузка бойцов игрока <code>{display_tag}</code>...",
             parse_mode="HTML"
         )
 
@@ -290,19 +298,15 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
                     html = await response.text()
                     soup = BeautifulSoup(html, "html.parser")
 
-                    # Ищем все карточки бойцов - article с data-id
                     brawler_cards = soup.find_all("article", class_=lambda x: x and "brawler-card" in x)
 
                     brawlers_list = []
                     for card in brawler_cards:
-                        brawler_id = card.get("data-id")
                         brawler_name = card.get("data-name")
                         brawler_power = card.get("data-power")
                         brawler_trophies = card.get("data-trophies")
-                        brawler_rank = card.get("data-rank")
 
                         if brawler_name and brawler_trophies:
-                            # Преобразуем кубки в число для сортировки
                             trophies_num = int(brawler_trophies.replace(",", "")) if brawler_trophies.replace(",", "").isdigit() else 0
 
                             brawlers_list.append({
@@ -310,15 +314,12 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
                                 "power": brawler_power or "?",
                                 "trophies": brawler_trophies,
                                 "trophies_num": trophies_num,
-                                "rank": brawler_rank or "?"
                             })
 
                     logging.info(f"Найдено бойцов: {len(brawlers_list)}")
                     
-                    # Сортируем по кубкам (по убыванию)
                     brawlers_list.sort(key=lambda x: x["trophies_num"], reverse=True)
                     
-                    # Сохраняем в кэш
                     user_brawlers[user_id] = {
                         "brawlers": brawlers_list,
                         "page": 0,
@@ -334,9 +335,8 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
                 )
                 return
     
-    # Получаем данные из кэша
     brawlers_list = user_brawlers[user_id]["brawlers"]
-    total_pages = (len(brawlers_list) + 14) // 15  # Округляем вверх
+    total_pages = (len(brawlers_list) + 14) // 15
     
     if page >= total_pages:
         page = total_pages - 1
@@ -345,20 +345,17 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     
     user_brawlers[user_id]["page"] = page
     
-    # Получаем 15 бойцов для текущей страницы
     start_idx = page * 15
     end_idx = min(start_idx + 15, len(brawlers_list))
     page_brawlers = brawlers_list[start_idx:end_idx]
     
-    # Формируем сообщение
-    result = f"🎮 <b>Бойцы игрока</b> <code>#{player_tag}</code>\n\n"
+    result = f"🎮 <b>Бойцы игрока</b> <code>{display_tag}</code>\n\n"
     
     for i, brawler in enumerate(page_brawlers, start_idx + 1):
         result += f"{i}. <b>{brawler['name']}</b> — Сила <code>{brawler['power']}</code> — 🏆 <code>{brawler['trophies']}</code>\n"
     
     result += f"\n📄 Страница <b>{page + 1}/{total_pages}</b>"
     
-    # Добавляем кнопки навигации
     keyboard = []
     row = []
     
@@ -373,7 +370,6 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
     if row:
         keyboard.append(row)
     
-    # Добавляем кнопку "Обновить"
     keyboard.append([InlineKeyboardButton(text="🔄 Обновить", callback_data=f"brawlers_list_{safe_tag}_{player_tag}")])
     
     reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard) if keyboard else None
@@ -386,15 +382,12 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
 
 @dp.callback_query(F.data.startswith("brawlers_"))
 async def callback_brawlers_page(callback: CallbackQuery):
-    """Обработчик нажатия кнопок пагинации бойцов"""
     data = callback.data.split("_")
 
-    # Обработка кнопки "Бойцы" из профиля игрока
     if data[1] == "list" and len(data) >= 4:
         tag_clean = data[2]
-        player_tag = "_".join(data[3:])  # На случай если в теге есть подчёркивания
+        player_tag = "_".join(data[3:])
         
-        # Сохраняем в кэш
         user_brawlers[callback.from_user.id] = {
             "brawlers": [],
             "page": 0,
@@ -405,7 +398,6 @@ async def callback_brawlers_page(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Обработка пагинации (brawlers_page_TAG_PAGE)
     if data[1] == "page" and len(data) >= 4:
         tag_clean = data[2]
         try:
@@ -414,7 +406,6 @@ async def callback_brawlers_page(callback: CallbackQuery):
             await callback.answer()
             return
         
-        # Получаем player_tag из кэша или используем tag_clean
         player_tag = tag_clean
         if callback.from_user.id in user_brawlers:
             if user_brawlers[callback.from_user.id]["tag_clean"] == tag_clean:
@@ -424,7 +415,6 @@ async def callback_brawlers_page(callback: CallbackQuery):
         await callback.answer()
         return
     
-    # Старый формат (brawlers_TAG_PAGE) для совместимости
     if len(data) >= 3 and data[1] != "list" and data[1] != "page":
         tag_clean = data[1]
         try:
