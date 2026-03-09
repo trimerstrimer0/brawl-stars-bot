@@ -104,8 +104,9 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url, headers=headers, timeout=10) as response:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
+                    logging.warning(f"Статус ответа: {response.status}")
                     await message.answer(
                         f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>",
                         parse_mode="HTML"
@@ -113,6 +114,14 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                     return
 
                 html = await response.text()
+                if not html:
+                    logging.warning("Пустой HTML ответ")
+                    await message.answer(
+                        "❌ <b>Ошибка:</b> пустой ответ от сайта",
+                        parse_mode="HTML"
+                    )
+                    return
+                    
                 soup = BeautifulSoup(html, "html.parser")
 
                 name_elem = soup.find("h1")
@@ -191,13 +200,18 @@ async def get_player_info(message: Message, tag_clean: str, player_tag: str):
                         result += f"{i}. <code>{b_name}</code> - <b>{b_trophies}</b>\n"
 
                 safe_tag = tag_clean.replace("#", "")
-                keyboard = [[InlineKeyboardButton(text="🎮 Бойцы", callback_data=f"brawlers_list_{safe_tag}")]]
+                keyboard = [
+                    [
+                        InlineKeyboardButton(text="🎮 Бойцы", callback_data=f"brawlers_list_{safe_tag}"),
+                        InlineKeyboardButton(text="⚔️ Матчи", callback_data=f"matches_list_{safe_tag}")
+                    ]
+                ]
                 reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
 
                 await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
 
         except Exception as e:
-            logging.error(f"Ошибка при запросе игрока: {e}")
+            logging.error(f"Ошибка при запросе игрока: {type(e).__name__}: {e}")
             await message.answer(
                 "❌ <b>Произошла ошибка</b> при получении данных",
                 parse_mode="HTML"
@@ -215,7 +229,7 @@ async def get_clan_info(message: Message, tag_clean: str, clan_tag: str):
 
     async with aiohttp.ClientSession() as session:
         try:
-            async with session.get(url, headers=headers, timeout=10) as response:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                 if response.status != 200:
                     await message.answer(
                         f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>",
@@ -278,7 +292,7 @@ async def get_brawlers_info(message: Message, tag_clean: str, player_tag: str, p
 
         async with aiohttp.ClientSession() as session:
             try:
-                async with session.get(url, headers=headers, timeout=10) as response:
+                async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
                     if response.status != 200:
                         error_msg = f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>"
                         if callback:
@@ -438,6 +452,131 @@ async def callback_brawlers_page(callback: CallbackQuery):
         return
 
     await callback.answer()
+
+@dp.callback_query(F.data.startswith("matches_"))
+async def callback_matches_page(callback: CallbackQuery):
+    # Проверка на дубликат обновления
+    update_id = f"cb_{callback.id}"
+    if update_id in processed_updates:
+        await callback.answer()
+        return
+    processed_updates.add(update_id)
+    if len(processed_updates) > 1000:
+        processed_updates.clear()
+
+    data = callback.data.split("_")
+    
+    if len(data) >= 3 and data[1] == "list":
+        tag_clean = data[2]
+        player_tag = tag_clean
+        await get_matches_info(callback.message, tag_clean, player_tag, callback=None)
+        await callback.answer()
+        return
+    
+    await callback.answer()
+
+async def get_matches_info(message: Message, tag_clean: str, player_tag: str, callback: CallbackQuery = None):
+    """Получение последних 5 матчей игрока"""
+    display_tag = player_tag if player_tag.startswith('#') else f"#{player_tag}"
+
+    await message.answer(
+        f"🔍 Загрузка матчей игрока <code>{display_tag}</code>...",
+        parse_mode="HTML"
+    )
+
+    url = f"https://brawlify.com/player/{tag_clean}/battles"
+    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+
+    async with aiohttp.ClientSession() as session:
+        try:
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=30)) as response:
+                if response.status != 200:
+                    await message.answer(
+                        f"❌ <b>Ошибка:</b> статус <code>{response.status}</code>",
+                        parse_mode="HTML"
+                    )
+                    return
+
+                html = await response.text()
+                soup = BeautifulSoup(html, "html.parser")
+
+                battle_cards = soup.find_all("article", class_="battle-card")
+
+                matches_list = []
+                for card in battle_cards[:5]:  # Берём первые 5 матчей
+                    # Результат матча
+                    result_elem = card.find("span", class_="result-text")
+                    result = result_elem.get_text(strip=True) if result_elem else "?"
+
+                    # Боец
+                    brawler_elem = card.find("div", class_="avatar-item")
+                    brawler_name = "?"
+                    if brawler_elem:
+                        img = brawler_elem.find("img")
+                        if img and img.get("alt"):
+                            brawler_name = img.get("alt")
+
+                    # Режим игры
+                    mode_elem = card.find("span", class_="mode-name")
+                    mode = mode_elem.get_text(strip=True) if mode_elem else "?"
+
+                    # Карта
+                    map_elem = card.find("span", class_="map-name")
+                    map_name = map_elem.get_text(strip=True) if map_elem else "Unknown Map"
+
+                    # Изменение кубков
+                    trophy_elem = card.find("span", class_="trophy-change")
+                    trophy_change = trophy_elem.get_text(strip=True) if trophy_elem else "0"
+
+                    matches_list.append({
+                        "result": result,
+                        "brawler": brawler_name,
+                        "mode": mode,
+                        "map": map_name,
+                        "trophies": trophy_change
+                    })
+
+                if not matches_list:
+                    await message.answer(
+                        "❌ Не удалось загрузить матчи",
+                        parse_mode="HTML"
+                    )
+                    return
+
+                result = f"⚔️ <b>Последние матчи</b> <code>{display_tag}</code>\n\n"
+
+                for i, match in enumerate(matches_list, 1):
+                    # Определяем тип результата
+                    if match["result"] == "VICTORY":
+                        result_text = "🟢 Победа"
+                    elif match["result"] == "DEFEAT":
+                        result_text = "🔴 Поражение"
+                    elif match["result"] == "DRAW":
+                        result_text = "🟡 Ничья"
+                    else:  # #1, #2, etc. (Showdown)
+                        place = match["result"]
+                        if place == "#1":
+                            result_text = f"🥇 {place} место"
+                        elif place in ["#2", "#3"]:
+                            result_text = f"🥈 {place} место"
+                        else:
+                            result_text = f"🥉 {place} место"
+
+                    result += f"{i}. {result_text} — {match['brawler']}\n"
+                    result += f"    🎮 {match['mode']} • {match['map']}\n"
+                    result += f"    🏆 <code>{match['trophies']}</code>\n\n"
+
+                keyboard = [[InlineKeyboardButton(text="🔄 Обновить", callback_data=f"matches_list_{tag_clean}")]]
+                reply_markup = InlineKeyboardMarkup(inline_keyboard=keyboard)
+
+                await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
+
+        except Exception as e:
+            logging.error(f"Ошибка при запросе матчей: {e}")
+            await message.answer(
+                "❌ <b>Произошла ошибка</b> при получении данных",
+                parse_mode="HTML"
+            )
 
 async def main():
     logging.info("Запуск бота...")
