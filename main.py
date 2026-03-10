@@ -5,6 +5,7 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+import requests
 
 import os
 
@@ -50,10 +51,6 @@ async def cmd_start(message: Message):
         f"• <code>/bs brawlers #Y8GVPQJ0</code>",
         parse_mode="HTML"
     )
-
-import requests
-import aiohttp
-from aiogram.types import Message
 
 @dp.message(Command("server_ip"))
 async def cmd_server_ip(message: Message):
