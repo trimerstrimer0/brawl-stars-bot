@@ -31,10 +31,36 @@ HEADERS = {
 }
 
 
-async def make_brawl_request(url):
-    """Запрос к Brawl Stars API через статический прокси"""
+async def check_proxy():
+    """Проверить работу прокси и показать IP"""
     try:
+        async with aiohttp.ClientSession() as session:
+            # IP через прокси
+            async with session.get('https://api.ipify.org', proxy=TCP_PROXY, timeout=10) as resp:
+                proxy_ip = await resp.text()
+                print(f"\n🌐 IP через прокси: {proxy_ip.strip()}")
+            
+            # Прямой IP
+            async with session.get('https://api.ipify.org', timeout=5) as resp:
+                direct_ip = await resp.text()
+                print(f"🖥️ Прямой IP сервера: {direct_ip.strip()}")
+            
+            print(f"\n📝 Добавьте этот IP в белый список Brawl Stars API: {proxy_ip.strip()}")
+            print("-" * 50)
+            
+            return proxy_ip.strip()
+    except Exception as e:
+        print(f"❌ Ошибка проверки прокси: {e}")
+        return None
+
+
+async def make_brawl_request(url):
+    """Запрос к Brawl Stars API через прокси Railway"""
+    try:
+        logging.info(f"Запрос через прокси: {TCP_PROXY}")
+        
         connector = aiohttp.TCPConnector(ssl=False)
+        
         async with aiohttp.ClientSession(connector=connector) as session:
             async with session.get(
                 url,
@@ -42,20 +68,26 @@ async def make_brawl_request(url):
                 proxy=TCP_PROXY,
                 timeout=aiohttp.ClientTimeout(total=30)
             ) as response:
+                
                 if response.status == 200:
                     return await response.json()
                 else:
                     error_text = await response.text()
                     logging.error(f"Ошибка API: {response.status} - {error_text}")
+                    
+                    if response.status == 403:
+                        async with session.get('https://api.ipify.org', proxy=TCP_PROXY) as ip_resp:
+                            proxy_ip = await ip_resp.text()
+                            logging.error(f"❌ IP прокси ({proxy_ip.strip()}) не в белом списке!")
+                    
                     return None
+                    
+    except aiohttp.ClientProxyConnectionError as e:
+        logging.error(f"Ошибка подключения к прокси: {e}")
+        return None
     except Exception as e:
-        logging.error(f"Ошибка при запросе через прокси: {e}")
-        # Если прокси не работает, пробуем напрямую
-        async with aiohttp.ClientSession() as session:
-            async with session.get(url, headers=HEADERS) as response:
-                if response.status == 200:
-                    return await response.json()
-                return None
+        logging.error(f"Ошибка при запросе: {e}")
+        return None
 
 
 async def get_server_ip():
@@ -530,8 +562,35 @@ async def get_matches_info(message: Message, tag_clean: str, player_tag: str, ca
     await message.answer(result, parse_mode="HTML", reply_markup=reply_markup)
 
 
+@dp.message(Command("proxy_ip"))
+async def cmd_proxy_ip(message: Message):
+    """Показать IP прокси"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get('https://api.ipify.org', proxy=TCP_PROXY, timeout=10) as resp:
+                proxy_ip = await resp.text()
+                await message.answer(
+                    f"🌐 **IP прокси:** `{proxy_ip.strip()}`\n\n"
+                    f"Добавьте этот IP в белый список Brawl Stars API",
+                    parse_mode="Markdown"
+                )
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+
+
 async def main():
-    asyncio.create_task(get_server_ip())
+    # Проверяем прокси при запуске
+    print("\n" + "="*50)
+    print("ПРОВЕРКА ПРОКСИ RAILWAY")
+    print("="*50)
+    
+    proxy_ip = await check_proxy()
+    
+    if proxy_ip:
+        logging.info(f"✅ Прокси работает. IP для белого списка: {proxy_ip}")
+    else:
+        logging.error("❌ Прокси не работает!")
+    
     logging.info("Запуск бота...")
     await dp.start_polling(bot)
 
