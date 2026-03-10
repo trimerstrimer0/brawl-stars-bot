@@ -1,7 +1,10 @@
-import requests
+import urllib.request
+import json
 
-# Получаем все IP-диапазоны Google Cloud (Railway использует GCP)
-data = requests.get('https://www.gstatic.com/ipranges/cloud.json').json()
+# Получаем все IP-диапазоны Google Cloud
+url = 'https://www.gstatic.com/ipranges/cloud.json'
+response = urllib.request.urlopen(url)
+data = json.loads(response.read())
 
 # Выводим все IPv4 диапазоны
 for prefix in data['prefixes']:
