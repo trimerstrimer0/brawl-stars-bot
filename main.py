@@ -34,11 +34,27 @@ HEADERS = {
 async def check_proxy():
     """Проверить работу прокси и показать IP"""
     try:
-        async with aiohttp.ClientSession() as session:
+        print(f"🔍 Проверяем прокси: {TCP_PROXY}")
+        
+        # Настройки для прокси
+        connector = aiohttp.TCPConnector(ssl=False)
+        
+        async with aiohttp.ClientSession(connector=connector) as session:
             # IP через прокси
-            async with session.get('https://api.ipify.org', proxy=TCP_PROXY, timeout=10) as resp:
-                proxy_ip = await resp.text()
-                print(f"\n🌐 IP через прокси: {proxy_ip.strip()}")
+            try:
+                async with session.get('https://api.ipify.org', proxy=TCP_PROXY, timeout=15) as resp:
+                    if resp.status == 200:
+                        proxy_ip = await resp.text()
+                        print(f"✅ IP через прокси: {proxy_ip.strip()}")
+                    else:
+                        print(f"❌ Прокси вернул статус: {resp.status}")
+                        return None
+            except aiohttp.ClientProxyConnectionError as e:
+                print(f"❌ Ошибка подключения к прокси: {e}")
+                return None
+            except Exception as e:
+                print(f"❌ Ошибка при запросе через прокси: {e}")
+                return None
             
             # Прямой IP
             async with session.get('https://api.ipify.org', timeout=5) as resp:
@@ -49,8 +65,9 @@ async def check_proxy():
             print("-" * 50)
             
             return proxy_ip.strip()
+            
     except Exception as e:
-        print(f"❌ Ошибка проверки прокси: {e}")
+        print(f"❌ Общая ошибка проверки прокси: {e}")
         return None
 
 
