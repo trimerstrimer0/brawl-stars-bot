@@ -34,4 +34,4 @@ async def get_railway_ips():
 
 # Запуск при старте бота
 async def on_startup():
-    await get_railway_ips()у
+    await get_railway_ips()
