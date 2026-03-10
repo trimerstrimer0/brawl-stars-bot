@@ -28,15 +28,6 @@ HEADERS = {
     "Accept": "application/json"
 }
 
-@dp.message(Command("myip"))
-async def cmd_myip(message: Message):
-    import requests
-    try:
-        ip = requests.get('https://api.ipify.org').text
-        await message.answer(f"🌐 IP сервера: <code>{ip}</code>", parse_mode="HTML")
-    except:
-        await message.answer("❌ Не удалось определить IP")
-
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     update_id = f"msg_{message.chat.id}_{message.message_id}"
@@ -60,6 +51,40 @@ async def cmd_start(message: Message):
         parse_mode="HTML"
     )
 
+import requests
+import aiohttp
+from aiogram.types import Message
+
+@dp.message(Command("server_ip"))
+async def cmd_server_ip(message: Message):
+    """Узнать IP сервера, где запущен бот"""
+    try:
+        # Пробуем разные сервисы для определения IP
+        async with aiohttp.ClientSession() as session:
+            # Сервис 1
+            async with session.get('https://api.ipify.org', timeout=5) as resp:
+                ip1 = await resp.text()
+            
+            # Сервис 2 (для проверки)
+            async with session.get('https://ifconfig.me/ip', timeout=5) as resp:
+                ip2 = await resp.text()
+            
+            # Сервис 3
+            async with session.get('https://icanhazip.com', timeout=5) as resp:
+                ip3 = await resp.text()
+            
+            result = (
+                f"🌐 **IP адреса сервера:**\n\n"
+                f"• api.ipify.org: `{ip1.strip()}`\n"
+                f"• ifconfig.me: `{ip2.strip()}`\n"
+                f"• icanhazip.com: `{ip3.strip()}`\n\n"
+                f"Добавьте этот IP в белый список API Brawl Stars"
+            )
+            
+            print(result, parse_mode="Markdown")
+            
+    except Exception as e:
+        print(f"❌ Ошибка получения IP: {e}")
 
 @dp.message(Command("bs"))
 async def cmd_bs(message: Message):
