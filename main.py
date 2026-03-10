@@ -28,6 +28,14 @@ HEADERS = {
     "Accept": "application/json"
 }
 
+@dp.message(Command("myip"))
+async def cmd_myip(message: Message):
+    import requests
+    try:
+        ip = requests.get('https://api.ipify.org').text
+        await message.answer(f"🌐 IP сервера: <code>{ip}</code>", parse_mode="HTML")
+    except:
+        await message.answer("❌ Не удалось определить IP")
 
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
