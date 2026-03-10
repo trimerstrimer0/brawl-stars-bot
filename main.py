@@ -5,7 +5,6 @@ from aiogram import Bot, Dispatcher, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-import requests
 
 import os
 
@@ -29,6 +28,32 @@ HEADERS = {
     "Accept": "application/json"
 }
 
+
+async def get_server_ip():
+    """Просто вывести IP в консоль"""
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Сервис 1
+            async with session.get('https://api.ipify.org', timeout=5) as resp:
+                ip1 = await resp.text()
+                print(f"IP сервера (api.ipify.org): {ip1.strip()}")
+            
+            # Сервис 2
+            async with session.get('https://ifconfig.me/ip', timeout=5) as resp:
+                ip2 = await resp.text()
+                print(f"IP сервера (ifconfig.me): {ip2.strip()}")
+            
+            # Сервис 3
+            async with session.get('https://icanhazip.com', timeout=5) as resp:
+                ip3 = await resp.text()
+                print(f"IP сервера (icanhazip.com): {ip3.strip()}")
+            
+            return ip1.strip()
+    except Exception as e:
+        print(f"Ошибка получения IP: {e}")
+        return None
+
+
 @dp.message(Command("start"))
 async def cmd_start(message: Message):
     update_id = f"msg_{message.chat.id}_{message.message_id}"
@@ -51,37 +76,6 @@ async def cmd_start(message: Message):
         f"• <code>/bs brawlers #Y8GVPQJ0</code>",
         parse_mode="HTML"
     )
-
-@dp.message(Command("server_ip"))
-async def cmd_server_ip(message: Message):
-    """Узнать IP сервера, где запущен бот"""
-    try:
-        # Пробуем разные сервисы для определения IP
-        async with aiohttp.ClientSession() as session:
-            # Сервис 1
-            async with session.get('https://api.ipify.org', timeout=5) as resp:
-                ip1 = await resp.text()
-            
-            # Сервис 2 (для проверки)
-            async with session.get('https://ifconfig.me/ip', timeout=5) as resp:
-                ip2 = await resp.text()
-            
-            # Сервис 3
-            async with session.get('https://icanhazip.com', timeout=5) as resp:
-                ip3 = await resp.text()
-            
-            result = (
-                f"🌐 **IP адреса сервера:**\n\n"
-                f"• api.ipify.org: `{ip1.strip()}`\n"
-                f"• ifconfig.me: `{ip2.strip()}`\n"
-                f"• icanhazip.com: `{ip3.strip()}`\n\n"
-                f"Добавьте этот IP в белый список API Brawl Stars"
-            )
-            
-            print(result, parse_mode="Markdown")
-            
-    except Exception as e:
-        print(f"❌ Ошибка получения IP: {e}")
 
 @dp.message(Command("bs"))
 async def cmd_bs(message: Message):
@@ -558,6 +552,7 @@ async def get_matches_info(message: Message, tag_clean: str, player_tag: str, ca
 
 
 async def main():
+    asyncio.create_task(get_server_ip())
     logging.info("Запуск бота...")
     await dp.start_polling(bot)
 
